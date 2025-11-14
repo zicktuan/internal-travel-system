@@ -1,0 +1,43 @@
+export const JWT_CONFIG = {
+  ACCESS_TOKEN_EXPIRES_IN: '15m',
+  REFRESH_TOKEN_EXPIRES_IN: '7d',
+  RESET_PASSWORD_EXPIRES_IN: '1h'
+} as const;
+
+export const PASSWORD_CONFIG = {
+  MIN_LENGTH: 8,
+  SALT_ROUNDS: 12
+} as const;
+
+export const USER_CONFIG = {
+  MAX_LOGIN_ATTEMPTS: 5,
+  LOCKOUT_DURATION: 30 * 60 * 1000 // 30 minutes
+} as const;
+
+export const ROLE_NAMES = {
+  SUPER_ADMIN: 'ROLE_SUPERADMIN',
+  ADMIN: 'ROLE_ADMIN',
+  USER: 'ROLE_USER'
+} as const;
+
+export const PERMISSION_NAMES = {
+  // User permissions
+  USER_READ: 'USER_READ',
+  USER_WRITE: 'USER_WRITE',
+  USER_DELETE: 'USER_DELETE',
+  
+  // Role permissions
+  ROLE_READ: 'ROLE_READ',
+  ROLE_WRITE: 'ROLE_WRITE',
+  ROLE_DELETE: 'ROLE_DELETE',
+  
+  // Permission permissions
+  PERMISSION_READ: 'PERMISSION_READ',
+  PERMISSION_WRITE: 'PERMISSION_WRITE',
+  PERMISSION_DELETE: 'PERMISSION_DELETE',
+  
+  // Tour permissions
+  TOUR_READ: 'TOUR_READ',
+  TOUR_WRITE: 'TOUR_WRITE',
+  TOUR_DELETE: 'TOUR_DELETE'
+} as const;
