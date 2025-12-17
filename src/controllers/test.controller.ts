@@ -1,11 +1,11 @@
 // src/controllers/test.controller.ts
 import { Request, Response } from 'express';
-import { ApiResponseHandler } from '../utils/response.js';
+import { ApiResponseHandler } from '../utils/response';
 import { 
   NotFoundException, 
   BadRequestException, 
   ValidationException 
-} from '../exceptions/app.exception.js';
+} from '../exceptions/app.exception';
 
 export const testSuccess = (req: Request, res: Response): void => {
   ApiResponseHandler.success(

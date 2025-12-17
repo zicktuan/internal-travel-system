@@ -4,11 +4,13 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import 'dotenv/config';
 
-import { errorMiddlewareHandler, notFoundHandler } from './middleware/error.middleware.js';
-import { setupSwagger } from './config/swagger.js'
-import testRoutes from './routes/test.routes.js';
-import authRoutes from './routes/auth.routes.js';
-import userRoutes from './routes/user.routes.js';
+import { errorMiddlewareHandler, notFoundHandler } from './middleware/error.middleware';
+import { setupSwagger } from './config/swagger'
+import testRoutes from './routes/test.routes';
+import authRoutes from './routes/auth.routes';
+import userRoutes from './routes/user.routes';
+import roleRoutes from './routes/role.routes';
+import permissionRoutes from './routes/permission.routes';
 
 const app = express();
 
@@ -37,6 +39,8 @@ app.get('/health', (req, res) => {
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/roles', roleRoutes);
+app.use('/api/v1/permissions', permissionRoutes);
 
 if (process.env.NODE_ENV === 'development') {
   app.use('/api/test', testRoutes);

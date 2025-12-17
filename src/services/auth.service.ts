@@ -7,19 +7,21 @@ import { User } from "../models/user.model";
 import { generateRefreshToken, generateToken } from "../utils/jwt";
 import logger from "../utils/logger";
 import { comparePassword, hashPassword } from "../utils/password";
+import { validateEmailAvanced } from "../utils/validation";
 
 export class AuthService {
     private userRepository = AppDataSource.getRepository(User);
 
     async login(loginDto: LoginDto): Promise<AuthResponseDto> {
-        const {username, password} = loginDto;
+        const {email, password} = loginDto;
 
-        logger.info(`Login attempt for user: ${username}`);
-
-        const user = await this.userRepository.findOne({ where: {username}, relations: ['roles', 'roles.permissions'] });
+        const user = await this.userRepository.findOne({ 
+            where: {email: email.trim().toLowerCase()}, 
+            relations: ['roles', 'roles.permissions'] 
+        });
 
         if (!user) {
-            logger.warn(`Login failed: User ${username} not found`);
+            logger.warn(`Login failed: User ${email} not found`);
             throw new UnauthorizedException('Invalid username or password');
         }
 
@@ -35,7 +37,7 @@ export class AuthService {
         // Generate tokens
         const tokens = await this.generateUserTokens(user);
 
-        logger.info(`Login successful for user: ${username}`);
+        logger.info(`Login successful for user: ${email}`);
 
         return {
             ...tokens,
@@ -113,14 +115,12 @@ export class AuthService {
 
     private async verifyPassword(user: User, password: string): Promise<void> {
         const isPasswordValid = await comparePassword(password, user.password);
-        console.log(13131231231231);
-        console.log(isPasswordValid);
         if (!isPasswordValid) {
             user.loginAttempts += 1;
 
             if (user.loginAttempts >= USER_CONFIG.MAX_LOGIN_ATTEMPTS) {
                 user.isLocked = true;
-                logger.warn(`Account locked due to too many failed attempts: ${user.username}`);
+                logger.warn(`Account locked due to too many failed attempts: ${user.email}`);
             }
 
             await this.userRepository.save(user);

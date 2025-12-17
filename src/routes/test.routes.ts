@@ -6,7 +6,7 @@ import {
   testError, 
   testValidationError, 
   testServerError 
-} from '../controllers/test.controller.js';
+} from '../controllers/test.controller';
 
 const router = Router();
 

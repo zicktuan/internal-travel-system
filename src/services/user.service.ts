@@ -1,286 +1,418 @@
-import { In } from "typeorm";
+import { In, Repository, EntityManager } from "typeorm";
 import { AppDataSource } from "../config/database";
 import { CreateUserDto, UpdateUserDto, UserResponseDto } from "../dto/user.dto";
 import { BadRequestException, ForbiddenException, NotFoundException } from "../exceptions/app.exception";
 import { Role } from "../models/role.model";
 import { User } from "../models/user.model";
 import logger from "../utils/logger";
-import { generateRandomPassword, validatePasswordStrength } from "../utils/password";
-import { hashPassword } from "../utils/password";
+import { validatePasswordStrength, hashPassword } from "../utils/password";
+import { AuthHelper } from "../helper/auth.helper";
+import { UserHelper } from "../helper/user.helper";
+import { CacheHelper } from "../helper/cache.helper";
+import { PaginationOptions, UserQueryFilters, BulkOperationResult } from "../common/user";
 
 export class UserService {
-    private userRepository = AppDataSource.getRepository(User);
-    private roleRepository = AppDataSource.getRepository(Role);
+    private userRepository: Repository<User>;
+    private roleRepository: Repository<Role>;
+    private userHelper: UserHelper;
+    private cacheHelper: CacheHelper;
+
+    constructor() {
+        this.userRepository = AppDataSource.getRepository(User);
+        this.roleRepository = AppDataSource.getRepository(Role);
+
+        const cacheHelper = new CacheHelper();
+        this.cacheHelper = cacheHelper;
+        this.userHelper = new UserHelper(cacheHelper['roleCache']);
+    }
+
+    /**
+     * Helper to run a callback inside a transaction and properly commit/rollback/release.
+     * Reduces repetition of queryRunner boilerplate.
+     */
+    private async withTransaction<T>(action: (manager: EntityManager) => Promise<T>): Promise<T> {
+        const queryRunner = AppDataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            const result = await action(queryRunner.manager);
+            await queryRunner.commitTransaction();
+            return result;
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
+    }
 
     async createUser(createUserDto: CreateUserDto, createdById: number): Promise<UserResponseDto> {
         const { username, email, firstName, lastName, displayName, roleIds, sendPasswordEmail = false } = createUserDto;
 
-        // Check if user already exists
-        await this.checkExistingUser(username, email);
+        await AuthHelper.validateUserInput(username, email);
 
-        // Get roles
-        const roles = await this.getRolesByIds(roleIds);
+        try {
+            const rawUsername = username?.trim().toLowerCase();
+            const rawEmail = email?.trim().toLowerCase();
 
-        // Fetch the user who is creating this new user
-        const createdBy = await this.userRepository.findOne({ where: { id: createdById } });
-        if (!createdBy) {
-            throw new NotFoundException('Creator user not found');
-        }
+            const savedUser = await this.withTransaction(async (manager) => {
+                await this.userHelper.checkUserExistenceTransactional(rawUsername, rawEmail, manager);
 
-        // Generate random password
-        const password = generateRandomPassword();
-        const hasdedPassword = await hashPassword(password);
+                const [roles, createdBy, passwordData] = await Promise.all([
+                    this.userHelper.getRolesByIdsOptimized(roleIds, manager),
+                    AuthHelper.getUserReference(createdById, manager),
+                    this.userHelper.generatePasswordData()
+                ]);
 
-        // Create user
-        const user = new User({
-            username,
-            email,
-            password: hasdedPassword,
-            firstName,
-            lastName,
-            displayName: displayName || `${firstName} ${lastName}`.trim(),
-            roles,
-            isActive: true,
-            isVerified: false,
-            createdBy,
-            updatedBy: createdBy
-        });
+                if (!createdBy) {
+                    throw new NotFoundException('Creator user not found');
+                }
 
-        const savedUser = await this.userRepository.save(user);
+                const user = new User({
+                    username: rawUsername,
+                    email: rawEmail,
+                    password: passwordData.hashedPassword,
+                    firstName: firstName?.trim(),
+                    lastName: lastName?.trim(),
+                    displayName: displayName?.trim() || `${firstName} ${lastName}`.trim(),
+                    roles,
+                    isActive: true,
+                    isVerified: false,
+                    createdBy,
+                    updatedBy: createdBy
+                });
 
-        logger.info(`User created by ${createdBy.username}: ${username}`);
+                return await manager.save(User, user);
+            });
 
-        // TODO: Send password email if requested
-        if (sendPasswordEmail) {
-            await this.sendPasswordEmail(user, password);
-        }
+            this.cacheHelper.invalidateUserCache();
 
-        return this.mapToUserResponse(savedUser);
-    }
+            logger.info(`User created: ${username} (ID: ${savedUser.id})`);
 
-    async getAllUsers(): Promise<UserResponseDto[]> {
-        const users = await this.userRepository.find({
-            relations: ['roles', 'roles.permissions', 'createdBy', 'updatedBy'],
-            order: { createdAt: 'DESC' }
-        });
-
-        return users.map(user => this.mapToUserResponse(user));
-    }
-
-    async getUserById(id: number): Promise<UserResponseDto> {
-        const user = await this.userRepository.findOne({
-            where: {id},
-            relations: ['roles', 'roles.permissions', 'createdBy', 'updatedBy']
-        });
-
-        if (!user) {
-            throw new NotFoundException('User not found');
-        }
-
-        return this.mapToUserResponse(user);
-    }
-
-    async updateUser(id: number, updateUserDto: UpdateUserDto, updatedById: number): Promise<UserResponseDto> {
-        const user = await this.userRepository.findOne({
-            where: { id },
-            relations: ['roles']
-        });
-
-        if (!user) {
-            throw new NotFoundException('User not found');
-        }
-
-        // Fetch the user who is updating this user
-        const updatedBy = await this.userRepository.findOne({ where: { id: updatedById } });
-        if (!updatedBy) {
-            throw new NotFoundException('Updater user not found');
-        }
-
-        if (updateUserDto.firstName !== undefined) user.firstName = updateUserDto.firstName;
-        if (updateUserDto.lastName !== undefined) user.lastName = updateUserDto.lastName;
-        if (updateUserDto.displayName !== undefined) user.displayName = updateUserDto.displayName;
-        if (updateUserDto.email !== undefined) user.email = updateUserDto.email;
-        if (updateUserDto.phone !== undefined) user.phone = updateUserDto.phone;
-        if (updateUserDto.isActive !== undefined) user.isActive = updateUserDto.isActive;
-        if (updateUserDto.isVerified !== undefined) user.isVerified = updateUserDto.isVerified;
-
-        // Update roles if provided
-        if (updateUserDto.roleIds) {
-            user.roles = await this.getRolesByIds(updateUserDto.roleIds);
-        }
-
-        user.updatedBy = updatedBy;
-
-        const updatedUser = await this.userRepository.save(user);
-
-        logger.info(`User updated by ${updatedBy.username}: ${user.username}`);
-
-        return this.mapToUserResponse(updatedUser);
-    }
-
-    async deleteUser(id: number, deletedById: number): Promise<void> {
-        const user = await this.userRepository.findOne({
-            where: { id }
-        });
-
-        if (!user) {
-            throw new NotFoundException('User not found');
-        }
-
-        // Fetch the user who is deleting
-        const deletedBy = await this.userRepository.findOne({ where: { id: deletedById } });
-        if (!deletedBy) {
-            throw new NotFoundException('Deleter user not found');
-        }
-
-        // Prevent deleting super admin
-        if (user.username === 'superadmin') {
-            throw new ForbiddenException('Cannot delete super admin user');
-        }
-
-        // Prevent user from deleting thmselves
-        if (user.id === deletedBy.id) {
-            throw new ForbiddenException('Cannot delete your own account');
-        }
-
-        await this.userRepository.remove(user);
-
-        logger.info(`User deleted by ${deletedBy.username}: ${user.username}`);
-    }
-
-    async resetPassword(id: number, newPassword: string, updatedById: number): Promise<void> {
-        const user = await this.userRepository.findOne({
-            where: { id }
-        });
-
-        if (!user) {
-            throw new NotFoundException('User not found');
-        }
-
-        // Fetch the user who is resetting the password
-        const updatedBy = await this.userRepository.findOne({ where: { id: updatedById } });
-        if (!updatedBy) {
-            throw new NotFoundException('Updater user not found');
-        }
-
-        // Validate password strength
-        const passwordValidation = validatePasswordStrength(newPassword);
-        if (!passwordValidation.valid) {
-            throw new BadRequestException(passwordValidation.message);
-        }
-
-        user.password = await hashPassword(newPassword);
-        user.updatedBy = updatedBy;
-        user.loginAttempts = 0; // Reset login attempts
-        user.isLocked = false; // Unlock account
-
-        await this.userRepository.save(user);
-
-        logger.info(`Password reset by ${updatedBy.username} for user: ${user.username}`);
-    }
-
-    async unlockUser(id: number, updatedById: number): Promise<void> {
-        const user = await this.userRepository.findOne({
-            where: { id }
-        });
-
-        if (!user) {
-            throw new NotFoundException('User not found');
-        }
-
-        // Fetch the user who is unlocking
-        const updatedBy = await this.userRepository.findOne({ where: { id: updatedById } });
-        if (!updatedBy) {
-            throw new NotFoundException('Updater user not found');
-        }
-
-        user.isLocked = false;
-        user.loginAttempts = 0;
-        user.updatedBy = updatedBy;
-
-        await this.userRepository.save(user);
-
-        logger.info(`User unlocked by ${updatedBy.username}: ${user.username}`);
-    }
-
-    private async checkExistingUser(username: string, email: string): Promise<void> {
-        const existingUser = await this.userRepository.findOne({
-            where: [{ username }, { email }]
-        })
-
-        if (existingUser) {
-            if (existingUser.username === username) {
-                throw new BadRequestException('Username already exists');
+            return this.userHelper.mapToUserResponse(savedUser);
+        } catch (error) {
+            if (error instanceof BadRequestException || error instanceof ForbiddenException || error instanceof NotFoundException) {
+                throw error;
             }
-
-            if (existingUser.email === email) {
-                throw new BadRequestException('Email already exists');
-            }
+            logger.error('Unexpected error in createUser:', error);
+            throw new BadRequestException('Failed to create user');
         }
     }
 
-    async getRolesByIds(roleIds: number[]): Promise<Role[]> {
-        if (!roleIds || roleIds.length === 0) {
-            throw new BadRequestException('At least one role is required');
+    /**
+     * Unified fetch for users. If `pagination` is provided the result is paginated,
+     * otherwise returns all matching users but still returns pagination metadata
+     * (page = 1, limit = total).
+     */
+    async getAllUser(
+        pagination?: PaginationOptions,
+        filters?: UserQueryFilters
+    ): Promise<{ 
+        users: UserResponseDto[]; 
+        total: number; 
+        page: number; 
+        limit: number;
+        totalPages: number;
+        hasNext: boolean;
+        hasPrev: boolean;
+    }> {
+        const sortBy = AuthHelper.validateSortField(pagination?.sortBy || 'createdAt');
+        const sortOrder = pagination?.sortOrder || 'DESC';
+
+        const queryBuilder = this.userRepository.createQueryBuilder('user')
+            .leftJoinAndSelect('user.roles', 'roles')
+            .leftJoinAndSelect('user.createdBy', 'createdBy')
+            .leftJoinAndSelect('user.updatedBy', 'updatedBy');
+
+        AuthHelper.applyQueryFilters(queryBuilder, filters);
+
+        if (pagination && (pagination.page !== undefined || pagination.limit !== undefined)) {
+            const { page, limit, skip } = AuthHelper.validatePagination(pagination.page, pagination.limit);
+
+            const [users, total] = await queryBuilder
+                .orderBy(`user.${sortBy}`, sortOrder)
+                .skip(skip)
+                .take(limit)
+                .getManyAndCount();
+
+            users.forEach(user => this.cacheHelper.setUserInCache(user));
+
+            const totalPages = Math.ceil(total / limit);
+
+            return {
+                users: users.map(user => this.userHelper.mapToUserResponse(user)),
+                total,
+                page,
+                limit,
+                totalPages,
+                hasNext: page < totalPages,
+                hasPrev: page > 1
+            };
         }
 
-        const roles = await this.roleRepository.find({
-            where: {
-                id: In(roleIds)
-            }
-        });
-        
-        if (roles.length !== roleIds.length) {
-            throw new BadRequestException('One or more roles not found');
-        }
+        // No pagination requested: return all matching users with metadata
+        const users = await queryBuilder
+            .orderBy(`user.${sortBy}`, sortOrder)
+            .getMany();
 
-        return roles;
-    }
+        users.forEach(user => this.cacheHelper.setUserInCache(user));
 
-    private async sendPasswordEmail(user: User, password: string): Promise<void> {
-        // TODO: Implement email service
-        logger.info(`Password for ${user.username}: ${password}`);
-        // In production, this would send an actual email
-    }
+        const total = users.length;
+        const page = 1;
+        const limit = total;
+        const totalPages = total > 0 ? 1 : 0;
 
-    private mapToUserResponse(user: User): UserResponseDto {
         return {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            displayName: user.displayName,
-            fullName: user.fullName,
-            phone: user.phone,
-            avatarUrl: user.avatarUrl,
-            isActive: user.isActive,
-            isVerified: user.isVerified,
-            isLocked: user.isLocked,
-            lastLoginAt: user.lastLoginAt,
-            loginAttempts: user.loginAttempts,
-            createdAt: user.createdAt,
-            updatedAt: user.updatedAt || user.createdAt,
-            roles: user.roles.map(role => ({
-                id: role.id,
-                name: role.name,
-                description: role.description
-            })),
-            permissions: user.roles.flatMap(role => 
-                role.permissions?.map(p => p.name) || []
-            ),
-            createdBy: user.createdBy ? {
-                id: user.createdBy.id,
-                username: user.createdBy.username,
-                displayName: user.createdBy.displayName
-            } : undefined,
-            updatedBy: user.updatedBy ? {
-                id: user.updatedBy.id,
-                username: user.updatedBy.username,
-                displayName: user.updatedBy.displayName
-            } : undefined
+            users: users.map(user => this.userHelper.mapToUserResponse(user)),
+            total,
+            page,
+            limit,
+            totalPages,
+            hasNext: false,
+            hasPrev: false
         };
     }
 
+    async getUserById(id: number): Promise<UserResponseDto> {
+        const cachedUser = this.cacheHelper.getUserFromCache(id);
+        if (cachedUser) {
+            return this.userHelper.mapToUserResponse(cachedUser);
+        }
 
+        const user = await this.userRepository
+            .createQueryBuilder('user')
+            .leftJoinAndSelect('user.roles', 'roles')
+            .leftJoinAndSelect('user.createdBy', 'createdBy')
+            .leftJoinAndSelect('user.updatedBy', 'updatedBy')
+            .where('user.id = :id', { id })
+            .select([
+                'user',
+                'roles',
+                'createdBy.id', 'createdBy.username', 'createdBy.displayName',
+                'updatedBy.id', 'updatedBy.username', 'updatedBy.displayName'
+            ])
+            .getOne();
+
+        if (!user) {
+            throw new NotFoundException('User not found');
+        }
+
+        this.cacheHelper.setUserInCache(user);
+        return this.userHelper.mapToUserResponse(user)
+    }
+
+    async updateUser(id: number, updateUserDto: UpdateUserDto, updatedById: number): Promise<UserResponseDto> {
+        try {
+            const updatedUser = await this.withTransaction(async (manager) => {
+                const user = await manager.findOne(User, {
+                    where: { id },
+                    relations: ['roles'],
+                    lock: { mode: "pessimistic_write" }
+                });
+
+                if (!user) {
+                    throw new NotFoundException('User not found');
+                }
+
+                const updatedBy = await AuthHelper.getUserReference(updatedById, manager);
+                if (!updatedBy) {
+                    throw new NotFoundException('Updater user not found');
+                }
+
+                AuthHelper.validateUserModification(user, updatedBy);
+                AuthHelper.applyUserUpdates(user, updateUserDto);
+
+                if (updateUserDto.roleIds) {
+                    user.roles = await this.userHelper.getRolesByIdsOptimized(
+                        updateUserDto.roleIds,
+                        manager,
+                        this.roleRepository
+                    );
+                }
+
+                user.updatedBy = updatedBy;
+
+                return await manager.save(User, user);
+            });
+
+            // Invalidate only the affected user cache
+            this.cacheHelper.invalidateUserCache(updatedUser.id);
+
+            logger.info(`User updated (ID: ${id})`);
+
+            return this.userHelper.mapToUserResponse(updatedUser);
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async deleteUser(id: number, deletedById: number): Promise<void> {
+        await this.withTransaction(async (manager) => {
+            const user = await manager.findOne(User, {
+                where: { id },
+                select: ['id', 'username']
+            });
+
+            if (!user) {
+                throw new NotFoundException('User not found');
+            }
+
+            const deletedBy = await AuthHelper.getUserReference(deletedById, manager);
+            if (!deletedBy) {
+                throw new NotFoundException('Deleter user not found');
+            }
+
+            if (user.username === 'superadmin') {
+                throw new ForbiddenException('Cannot delete super admin user');
+            }
+
+            if (user.id === deletedBy.id) {
+                throw new ForbiddenException('Cannot delete your own account');
+            }
+
+            await manager.remove(User, user);
+
+            // Invalidate the single user cache
+            this.cacheHelper.invalidateUserCache(id);
+            logger.info(`User deleted by ${deletedBy.username}: ${user.username} (ID: ${id})`);
+        });
+    }
+
+    async resetPassword(id: number, newPassword: string, updatedById: number): Promise<void> {
+        await this.withTransaction(async (manager) => {
+            const user = await manager.findOne(User, {
+                where: { id },
+                select: ['id', 'username', 'password', 'loginAttempts', 'isLocked']
+            });
+
+            if (!user) {
+                throw new NotFoundException('User not found');
+            }
+
+            const updatedBy = await AuthHelper.getUserReference(updatedById, manager);
+            if (!updatedBy) {
+                throw new NotFoundException('Updater user not found');
+            }
+
+            const passwordValidation = validatePasswordStrength(newPassword);
+            if (!passwordValidation.valid) {
+                throw new BadRequestException(passwordValidation.message);
+            }
+
+            user.password = await hashPassword(newPassword);
+            user.loginAttempts = 0;
+            user.isLocked = false;
+            user.updatedBy = updatedBy;
+
+            await manager.save(User, user);
+
+            // Invalidate cache only for this user
+            this.cacheHelper.invalidateUserCache(id);
+            logger.info(`Password reset by ${updatedBy.username} for user: ${user.username} (ID: ${id})`);
+        });
+    }
+
+    async unlockUser(id: number, updatedById: number): Promise<void> {
+        await this.withTransaction(async (manager) => {
+            const user = await manager.findOne(User, {
+                where: { id },
+                select: ['id', 'username', 'loginAttempts', 'isLocked']
+            });
+
+            if (!user) {
+                throw new NotFoundException('User not found');
+            }
+
+            const updatedBy = await AuthHelper.getUserReference(updatedById, manager);
+            if (!updatedBy) {
+                throw new NotFoundException('Updater user not found');
+            }
+
+            user.isLocked = false;
+            user.loginAttempts = 0;
+            user.updatedBy = updatedBy;
+
+            await manager.save(User, user);
+
+            this.cacheHelper.invalidateUserCache(id);
+            logger.info(`User unlocked by ${updatedBy.username}: ${user.username} (ID: ${id})`);
+        });
+    }
+
+    async bulkUpdateUsers(
+        userIds: number[], 
+        updates: Partial<UpdateUserDto>, 
+        updatedById: number
+    ): Promise<BulkOperationResult> {
+        if (userIds.length > 100) {
+            throw new BadRequestException('Maximum batch size exceeded: 100');
+        }
+
+        const result: BulkOperationResult = {
+            success: 0,
+            failed: 0,
+            errors: []
+        };
+
+        await this.withTransaction(async (manager) => {
+            const updatedBy = await AuthHelper.getUserReference(updatedById, manager);
+            if (!updatedBy) {
+                throw new NotFoundException('Updater user not found');
+            }
+
+            const users = await manager.find(User, {
+                where: { id: In(userIds) },
+                relations: ['roles'],
+                lock: { mode: "pessimistic_write" }
+            });
+
+            const userMap = new Map(users.map(user => [user.id, user]));
+
+            await AuthHelper.processBatchOperations(
+                userIds,
+                async (userId) => {
+                    try {
+                        const user = userMap.get(userId);
+                        if (!user) {
+                            throw new NotFoundException(`User with ID ${userId} not found`);
+                        }
+
+                        AuthHelper.validateUserModification(user, updatedBy);
+                        AuthHelper.applyUserUpdates(user, updates);
+                        user.updatedBy = updatedBy;
+
+                        await manager.save(User, user);
+                        result.success++;
+                    } catch (error) {
+                        result.failed++;
+                        result.errors.push({
+                            id: userId,
+                            error: error instanceof Error ? error.message : 'Unknown error'
+                        });
+                    }
+                },
+                10
+            );
+
+            // Invalidate only affected users
+            this.cacheHelper.invalidateUserCache();
+            logger.info(`Bulk update completed: ${result.success} successful, ${result.failed} failed`);
+            return result;
+        });
+
+        return result;
+    }
+
+    clearUserCache(userId?: number): void {
+        this.cacheHelper.clearUserCache(userId);
+    }
+
+    getCacheStats() {
+        return this.cacheHelper.getCacheStats();
+    }
+
+    async destroy(): Promise<void> {
+        this.cacheHelper.destroy();
+    }
 }

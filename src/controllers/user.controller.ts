@@ -3,69 +3,16 @@ import { UserService } from "../services/user.service";
 import { CreateUserDto, UpdateUserDto } from "../dto/user.dto";
 import logger from "../utils/logger";
 import { ApiResponseHandler } from "../utils/response";
+import { UnauthorizedException } from "../exceptions/app.exception";
 
 export class UserController {
     private userService = new UserService();
 
-    /**
-     * @swagger
-     * /api/v1/users:
-     *   post:
-     *     summary: Create a new user
-     *     tags: [Users]
-     *     security:
-     *       - bearerAuth: []
-     *     requestBody:
-     *       required: true
-     *       content:
-     *         application/json:
-     *           schema:
-     *             type: object
-     *             required:
-     *               - username
-     *               - email
-     *               - firstName
-     *               - lastName
-     *               - roleIds
-     *             properties:
-     *               username:
-     *                 type: string
-     *               email:
-     *                 type: string
-     *                 format: email
-     *               firstName:
-     *                 type: string
-     *               lastName:
-     *                 type: string
-     *               displayName:
-     *                 type: string
-     *               roleIds:
-     *                 type: array
-     *                 items:
-     *                   type: number
-     *               sendPasswordEmail:
-     *                 type: boolean
-     *                 default: false
-     *     responses:
-     *       201:
-     *         description: User created successfully
-     *         content:
-     *           application/json:
-     *             schema:
-     *               $ref: '#/components/schemas/ApiResponse'
-     *       400:
-     *         $ref: '#/components/responses/ValidationError'
-     *       401:
-     *         $ref: '#/components/responses/UnauthorizedError'
-     *       403:
-     *         description: Forbidden - Insufficient permissions
-     *       409:
-     *         description: Conflict - Username or email already exists
-     */
     async createUser(req: Request, res: Response): Promise<void> {
         try {
             const createUserDto: CreateUserDto = req.body;
             const createdById = parseInt(req.user?.userId as string, 10);
+            if (Number.isNaN(createdById)) throw new UnauthorizedException('Invalid user ID');
             const result = await this.userService.createUser(createUserDto, createdById);
 
             ApiResponseHandler.success(res, 'User created successfully!', result); 
@@ -75,75 +22,29 @@ export class UserController {
         }
     }
 
-    /**
-     * @swagger
-     * /api/v1/users:
-     *   get:
-     *     summary: Get all users
-     *     tags: [Users]
-     *     security:
-     *       - bearerAuth: []
-     *     responses:
-     *       200:
-     *         description: List of users retrieved successfully
-     *         content:
-     *           application/json:
-     *             schema:
-     *               allOf:
-     *                 - $ref: '#/components/schemas/ApiResponse'
-     *                 - type: object
-     *                   properties:
-     *                     data:
-     *                       type: array
-     *                       items:
-     *                         $ref: '#/components/schemas/UserResponse'
-     *       401:
-     *         $ref: '#/components/responses/UnauthorizedError'
-     *       403:
-     *         description: Forbidden - Insufficient permissions
-     */
     async getAllUsers(req: Request, res: Response): Promise<void> {
         try {
-            const users = await this.userService.getAllUsers();
-            ApiResponseHandler.success(res, 'User retrieved successfully', users);
+            const pagination = {
+                page: req.query.page ? parseInt(req.query.page as string, 10) : undefined,
+                limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
+                sortBy: req.query.sortBy as string | undefined,
+                sortOrder: req.query.sortOrder as 'ASC' | 'DESC' | undefined
+            };
+
+            const filters: any = {};
+            if (req.query.username) filters.username = req.query.username as string;
+            if (req.query.email) filters.email = req.query.email as string;
+            if (req.query.role) filters.role = req.query.role as string;
+
+            const result = await this.userService.getAllUser(pagination as any, filters);
+            ApiResponseHandler.success(res, 'User retrieved successfully', result);
         } catch (error) {
             logger.error('Get all users error:', error);
             throw error;
         }
     }
 
-    /**
-     * @swagger
-     * /api/v1/users/{id}:
-     *   get:
-     *     summary: Get user by ID
-     *     tags: [Users]
-     *     security:
-     *       - bearerAuth: []
-     *     parameters:
-     *       - in: path
-     *         name: id
-     *         required: true
-     *         schema:
-     *           type: integer
-     *         description: User ID
-     *     responses:
-     *       200:
-     *         description: User retrieved successfully
-     *         content:
-     *           application/json:
-     *             schema:
-     *               allOf:
-     *                 - $ref: '#/components/schemas/ApiResponse'
-     *                 - type: object
-     *                   properties:
-     *                     data:
-     *                       $ref: '#/components/schemas/UserResponse'
-     *       401:
-     *         $ref: '#/components/responses/UnauthorizedError'
-     *       404:
-     *         $ref: '#/components/responses/NotFoundError'
-     */
+    
     async getUserById(req: Request, res: Response): Promise<void> {
         try {
             const id = parseInt(req.params.id as string, 10);
@@ -156,61 +57,6 @@ export class UserController {
         }
     }
 
-    /**
-     * @swagger
-     * /api/v1/users/{id}:
-     *   put:
-     *     summary: Update user
-     *     tags: [Users]
-     *     security:
-     *       - bearerAuth: []
-     *     parameters:
-     *       - in: path
-     *         name: id
-     *         required: true
-     *         schema:
-     *           type: integer
-     *         description: User ID
-     *     requestBody:
-     *       required: true
-     *       content:
-     *         application/json:
-     *           schema:
-     *             type: object
-     *             properties:
-     *               firstName:
-     *                 type: string
-     *               lastName:
-     *                 type: string
-     *               displayName:
-     *                 type: string
-     *               email:
-     *                 type: string
-     *                 format: email
-     *               phone:
-     *                 type: string
-     *               isActive:
-     *                 type: boolean
-     *               isVerified:
-     *                 type: boolean
-     *               roleIds:
-     *                 type: array
-     *                 items:
-     *                   type: number
-     *     responses:
-     *       200:
-     *         description: User updated successfully
-     *         content:
-     *           application/json:
-     *             schema:
-     *               $ref: '#/components/schemas/ApiResponse'
-     *       400:
-     *         $ref: '#/components/responses/ValidationError'
-     *       401:
-     *         $ref: '#/components/responses/UnauthorizedError'
-     *       404:
-     *         $ref: '#/components/responses/NotFoundError'
-     */
     async updateUser(req: Request, res: Response): Promise<void> {
         try {
             const id = parseInt(req.params.id as string, 10);
@@ -225,35 +71,6 @@ export class UserController {
         }
     }
 
-    /**
-     * @swagger
-     * /api/v1/users/{id}:
-     *   delete:
-     *     summary: Delete user
-     *     tags: [Users]
-     *     security:
-     *       - bearerAuth: []
-     *     parameters:
-     *       - in: path
-     *         name: id
-     *         required: true
-     *         schema:
-     *           type: integer
-     *         description: User ID
-     *     responses:
-     *       200:
-     *         description: User deleted successfully
-     *         content:
-     *           application/json:
-     *             schema:
-     *               $ref: '#/components/schemas/ApiResponse'
-     *       401:
-     *         $ref: '#/components/responses/UnauthorizedError'
-     *       403:
-     *         description: Forbidden - Cannot delete super admin or own account
-     *       404:
-     *         $ref: '#/components/responses/NotFoundError'
-     */
     async deleteUser(req: Request, res: Response): Promise<void> {
         try {
             const id = parseInt(req.params.id as string, 10);
@@ -267,47 +84,6 @@ export class UserController {
         }
     }
 
-    /**
-     * @swagger
-     * /api//v1/users/{id}/reset-password:
-     *   post:
-     *     summary: Reset user password
-     *     tags: [Users]
-     *     security:
-     *       - bearerAuth: []
-     *     parameters:
-     *       - in: path
-     *         name: id
-     *         required: true
-     *         schema:
-     *           type: integer
-     *         description: User ID
-     *     requestBody:
-     *       required: true
-     *       content:
-     *         application/json:
-     *           schema:
-     *             type: object
-     *             required:
-     *               - newPassword
-     *             properties:
-     *               newPassword:
-     *                 type: string
-     *                 minLength: 6
-     *     responses:
-     *       200:
-     *         description: Password reset successfully
-     *         content:
-     *           application/json:
-     *             schema:
-     *               $ref: '#/components/schemas/ApiResponse'
-     *       400:
-     *         $ref: '#/components/responses/ValidationError'
-     *       401:
-     *         $ref: '#/components/responses/UnauthorizedError'
-     *       404:
-     *         $ref: '#/components/responses/NotFoundError'
-     */
     async resetPassword(req: Request, res: Response): Promise<void> {
         try {
             const id = parseInt(req.params.id as string, 10);
@@ -322,33 +98,6 @@ export class UserController {
         }
     }
 
-    /**
-     * @swagger
-     * /api/v1/users/{id}/unlock:
-     *   post:
-     *     summary: Unlock user account
-     *     tags: [Users]
-     *     security:
-     *       - bearerAuth: []
-     *     parameters:
-     *       - in: path
-     *         name: id
-     *         required: true
-     *         schema:
-     *           type: integer
-     *         description: User ID
-     *     responses:
-     *       200:
-     *         description: User unlocked successfully
-     *         content:
-     *           application/json:
-     *             schema:
-     *               $ref: '#/components/schemas/ApiResponse'
-     *       401:
-     *         $ref: '#/components/responses/UnauthorizedError'
-     *       404:
-     *         $ref: '#/components/responses/NotFoundError'
-     */
     async unlockUser(req: Request, res: Response): Promise<void> {
         try {
             const id = parseInt(req.params.id as string, 10);

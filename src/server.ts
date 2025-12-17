@@ -2,41 +2,13 @@ import 'reflect-metadata';
 import app from './app';
 import { AppDataSource, connectDatabase } from './config/database';
 import logger from './utils/logger';
-import { dataSeeder } from './seeders/data.seeder';
 
 const PORT = process.env.PORT || 11000;
-
-const runMigrations = async (): Promise<void> => {
-    try {
-        const pendingMigration = await AppDataSource.showMigrations();
-
-        if (pendingMigration) {
-            logger.info('🔄 Running database migrations...');
-            await AppDataSource.runMigrations();
-            logger.info('✅ Database migrations completed');
-        }
-        else {
-            logger.info('✅ Database is up to date');
-        }
-    } catch (error) {
-        logger.error('❌ Database migrations failed:', error);
-        throw error;
-    }
-}
 
 const startServer = async (): Promise<void> => {
     try {
         logger.info('🚀 Starting Internal Travel System...');
         await connectDatabase();
-
-        // await runMigrations();
-
-        // try {
-        //     await dataSeeder.seed();
-        //     logger.info('🌱 Data seeding completed');
-        // } catch (e) {
-        //     logger.warn('Data seeding may have partial errors:', e);
-        // }
 
         // Start server
         app.listen(PORT, () => {

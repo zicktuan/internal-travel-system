@@ -1,5 +1,5 @@
 export class LoginDto {
-  username!: string;
+  email!: string;
   password!: string;
 
   constructor(data?: Partial<LoginDto>) {

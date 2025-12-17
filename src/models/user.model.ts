@@ -63,7 +63,7 @@ export class User extends BaseEntity {
     @Column({ type: 'boolean', default: true })
     isActive: boolean = true;
 
-    @Column({ type: 'boolean', default: true })
+    @Column({ type: 'boolean', default: false })
     isLocked: boolean = false;
 
     @Column({ type: 'timestamptz', nullable: true })
@@ -72,7 +72,7 @@ export class User extends BaseEntity {
     @Column({ type: 'integer', default: 0 })
     loginAttempts!: number;
 
-    @ManyToMany(() => Role, role => role.users, {eager: true, cascade: true})
+    @ManyToMany(() => Role, role => role.users)
     @JoinTable({
         name: 'user_roles',
         joinColumn: { name: 'userId', referencedColumnName: 'id' },

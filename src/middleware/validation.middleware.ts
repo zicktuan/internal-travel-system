@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { ValidationException } from '../exceptions/app.exception.js';
+import { ValidationException } from '../exceptions/app.exception';
 
 export const validateRequest = (schema: any) => {
   return (req: Request, res: Response, next: NextFunction) => {
