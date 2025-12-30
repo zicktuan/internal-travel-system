@@ -13,11 +13,11 @@ export class AuthService {
     private userRepository = AppDataSource.getRepository(User);
 
     async login(loginDto: LoginDto): Promise<AuthResponseDto> {
-        const {email, password} = loginDto;
+        const { email, password } = loginDto;
 
-        const user = await this.userRepository.findOne({ 
-            where: {email: email.trim().toLowerCase()}, 
-            relations: ['roles', 'roles.permissions'] 
+        const user = await this.userRepository.findOne({
+            where: { email: email.trim().toLowerCase() },
+            relations: ['roles', 'roles.permissions']
         });
 
         if (!user) {
@@ -98,8 +98,16 @@ export class AuthService {
     }
 
     private sanitizeUser(user: User): any {
-        const { password, ...userWithoutPassword } = user;
-        return userWithoutPassword;
+        return {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            fullName: user.fullName,
+            avatarUrl: user.avatarUrl,
+            phone: user.phone
+        };
     }
 
     // Private helper methods
@@ -134,7 +142,7 @@ export class AuthService {
         await this.userRepository.save(user);
     }
 
-    private async generateUserTokens(user: User): Promise<{ accessToken: string; refreshToken: string}> {
+    private async generateUserTokens(user: User): Promise<{ accessToken: string; refreshToken: string }> {
         const basePayload = {
             userId: user.id.toString(),
             username: user.username,
@@ -150,8 +158,8 @@ export class AuthService {
             ...basePayload,
             type: TokenType.REFRESH
         }
-        
-        
+
+
         return {
             accessToken: generateToken(accessPayload),
             refreshToken: generateRefreshToken(refreshPayload)
@@ -159,7 +167,7 @@ export class AuthService {
     }
 
     private extractPermissions(user: User): string[] {
-        return user.roles.flatMap(role => 
+        return user.roles.flatMap(role =>
             role.permissions.map(permission => permission.name)
         );
     }

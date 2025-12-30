@@ -11,19 +11,20 @@ import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
 import roleRoutes from './routes/role.routes';
 import permissionRoutes from './routes/permission.routes';
+import categoryRoutes from './routes/category.routes';
 
 const app = express();
 
 app.use(helmet());
 app.use(cors({
-    origin: '*',
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  origin: '*',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 app.use(express.json());
-app.use(express.urlencoded({extended: true, limit: '10mb'}));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use(morgan('combined'));
 
@@ -41,6 +42,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/roles', roleRoutes);
 app.use('/api/v1/permissions', permissionRoutes);
+app.use('/api/v1/categories', categoryRoutes);
 
 if (process.env.NODE_ENV === 'development') {
   app.use('/api/test', testRoutes);
