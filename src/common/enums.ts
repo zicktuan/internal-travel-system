@@ -32,3 +32,9 @@ export enum PermissionModule {
   AUTH = 'AUTH',
   SYSTEM = 'SYSTEM',
 }
+
+export enum ServiceType {
+  TOUR = 'TOUR',
+  HOTEL = 'HOTEL',
+  CRUISE = 'CRUISE'
+}

@@ -2,13 +2,26 @@ import { AppDataSource } from "../config/database";
 import { Category } from "../models/category.entity";
 import { CategoryDto } from "../dto/category.dto";
 import { NotFoundException } from "../exceptions/app.exception";
-import { ILike, In, IsNull } from "typeorm";
+import { ILike, In, IsNull, Repository } from "typeorm";
+import { GeneralHelper } from "../helper/general.helper";
+import { ServiceType } from "../common/enums";
 
 export class CategoryService {
-    private categoryRepository = AppDataSource.getRepository(Category);
+    private categoryRepository: Repository<Category>
+    private generalHelper: GeneralHelper;
+
+    constructor() {
+        this.categoryRepository = AppDataSource.getRepository(Category);
+        this.generalHelper = new GeneralHelper();
+    }
 
     async create(data: CategoryDto): Promise<Category> {
-        const category = this.categoryRepository.create(data);
+        const slug = this.generalHelper.generateSlug(data.name);
+        const category = this.categoryRepository.create({
+            ...data,
+            slug,
+            serviceType: ServiceType.TOUR
+        });
         return await this.categoryRepository.save(category);
     }
 

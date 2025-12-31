@@ -112,19 +112,13 @@ router.use(authMiddleware);
  *             type: object
  *             required:
  *               - name
- *               - slug
  *             properties:
  *               name:
- *                 type: string
- *                 maxLength: 255
- *               slug:
  *                 type: string
  *                 maxLength: 255
  *               parentId:
  *                 type: integer
  *                 description: ID of parent category (0 or null for root)
- *               serviceType:
- *                 type: string
  *     responses:
  *       201:
  *         description: Category created successfully
@@ -164,13 +158,8 @@ router.post('/', categoryController.create.bind(categoryController));
  *               name:
  *                 type: string
  *                 maxLength: 255
- *               slug:
- *                 type: string
- *                 maxLength: 255
  *               parentId:
  *                 type: integer
- *               serviceType:
- *                 type: string
  *     responses:
  *       200:
  *         description: Category updated successfully
