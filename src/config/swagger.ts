@@ -1,9 +1,8 @@
 import { Express, Request, Response } from 'express';
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
-import { version } from '../../package.json' assert { type: 'json' };
 import { readFileSync } from 'fs';
-import { join, dirname } from 'path'; 
+import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,6 +11,7 @@ const __dirname = dirname(__filename);
 // Read package.json for version - không dùng assert
 const packageJsonPath = join(__dirname, '../../package.json');
 const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+const version = packageJson.version;
 
 const options: swaggerJsdoc.Options = {
   definition: {

@@ -10,7 +10,8 @@
     "prod": "node dist/server.js",
     "debug-login": "tsx src/scripts/debug-login.ts",
     "gen-pass": "tsx src/scripts/generate-password.ts",
-    "migration:generate": "typeorm-ts-node-esm migration:generate -d src/config/database.ts"
+    "migration:generate": "typeorm-ts-node-esm migration:generate -d src/config/database.ts",
+    "seed:locations": "tsx src/scripts/seed-locations.ts"
   },
   "keywords": [
     "travel",

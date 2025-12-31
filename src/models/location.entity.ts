@@ -1,10 +1,8 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
+import { Column, Entity } from "typeorm";
+import { BaseEntity } from "./base.entity";
 
 @Entity('locations')
-export class Location {
-    @PrimaryGeneratedColumn()
-    id!: number;
-
+export class Location extends BaseEntity {
     @Column({ type: 'varchar', length: 255, nullable: false })
     name!: string;
 
@@ -20,9 +18,5 @@ export class Location {
     @Column({ type: 'varchar', length: 50, default: null })
     locationCode?: string;
 
-    @CreateDateColumn({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
-    createdAt!: Date;
-
-    @UpdateDateColumn({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
-    updatedAt!: Date;
+    children?: Location[];
 }

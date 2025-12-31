@@ -12,6 +12,7 @@ import userRoutes from './routes/user.routes';
 import roleRoutes from './routes/role.routes';
 import permissionRoutes from './routes/permission.routes';
 import categoryRoutes from './routes/category.routes';
+import locationRoutes from './routes/location.routes';
 
 const app = express();
 
@@ -43,6 +44,7 @@ app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/roles', roleRoutes);
 app.use('/api/v1/permissions', permissionRoutes);
 app.use('/api/v1/categories', categoryRoutes);
+app.use('/api/v1/locations', locationRoutes);
 
 if (process.env.NODE_ENV === 'development') {
   app.use('/api/test', testRoutes);
