@@ -55,15 +55,7 @@ export class CategoryService {
         });
 
         if (data.length > 0) {
-            const parentIds = data.map(cat => cat.id);
-            const children = await this.categoryRepository.find({
-                where: { parentId: In(parentIds) },
-                order: { createdAt: 'DESC' }
-            });
-
-            data.forEach(parent => {
-                parent.children = children.filter(child => child.parentId === parent.id);
-            });
+            await this.fetchDescendants(data);
         }
 
         return {
@@ -96,5 +88,23 @@ export class CategoryService {
             throw new NotFoundException(`Category with ID ${id} not found`);
         }
         return category;
+    }
+
+    private async fetchDescendants(categories: Category[]): Promise<void> {
+        if (categories.length === 0) return;
+
+        const categoryIds = categories.map(cat => cat.id);
+        const children = await this.categoryRepository.find({
+            where: { parentId: In(categoryIds) },
+            order: { createdAt: 'DESC' }
+        });
+
+        if (children.length > 0) {
+            categories.forEach(parent => {
+                parent.children = children.filter(child => child.parentId === parent.id);
+            });
+
+            await this.fetchDescendants(children);
+        }
     }
 }
